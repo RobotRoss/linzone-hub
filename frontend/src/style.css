@@ -57,6 +57,11 @@ h2 { font-size: 1.05rem; }
 .workspace { display: grid; gap: 16px; min-width: 0; }
 .tabs { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .tabs button.active { border-color: #77d3ff; color: #77d3ff; }
+.lang-toggle { display: inline-flex; }
+.lang-toggle button { min-width: 5.5rem; border-radius: 0; }
+.lang-toggle button:first-child { border-radius: 8px 0 0 8px; }
+.lang-toggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.lang-toggle button.active { position: relative; z-index: 1; border-color: #77d3ff; color: #77d3ff; }
 .hero-device { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 1rem; align-items: center; }
 .hero-device > img { width: 72px; height: 72px; object-fit: contain; }
 .hero-device > div { min-width: 0; }

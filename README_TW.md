@@ -9,6 +9,7 @@ LINZONE Hub 是給 Sony INZONE 裝置使用的實驗性 Linux 控制工具。
 ## 功能
 
 - Sony INZONE 裝置狀態與控制用桌面 GUI。
+- GUI 支援英文與繁體中文。預設跟隨系統語言（不支援的語言會回退為英文），也可以用上方列的切換按鈕手動切換，並會記住你的選擇。
 - INZONE HID / serial protocol 的 CLI 探測與除錯工具。
 - INZONE Buds 左耳、右耳、充電盒電量支援。
 - INZONE H9 / H7 USB VCOM serial 模式支援。

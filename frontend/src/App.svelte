@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Service } from '../bindings/github.com/patyhank/linzone-hub/internal/app/index.js';
+  import { t, getLocale, setLocale, localeOptions } from './lib/i18n/index.svelte.js';
 
   type DeviceSummary = { index: number; path: string; model: string; product: string; manufacturer: string; serial: string; vendorId: number; productId: number; usagePage: number; usage: number; interface: number; kind: 'headset' | 'buds' | 'mouse' | 'keyboard' | string; isBuds: boolean };
   type BatteryCell = { percent: number; status: number };
@@ -16,6 +17,8 @@
     warnings: string[];
   };
   type Profile = { id: number; name: string; preset: string; axis: string; eq: number[]; controls: Record<string, number | boolean> };
+  // A status label is either a literal or a thunk, so translated labels re-render on language change.
+  type Label = string | (() => string);
   type ModelIconMap = { products?: Record<string, { marketing_name: string; icon_file: string }>; pid_map?: Record<string, string> };
 
   const eqBands = ['31.5', '63', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
@@ -52,7 +55,8 @@
   let modelMap: ModelIconMap = $state({});
   let activeTab: (typeof tabs)[number] = $state('Live');
   let loading = $state(false);
-  let message = $state('Ready');
+  // Held as a thunk (not a string) so the visible status re-translates when the language is switched.
+  let message = $state<() => string>(() => t('msg.ready'));
   let error = $state('');
 
   let headphoneVolume = $state(50), micVolume = $state(50), sidetone = $state(20), gameChatMix = $state(50);
@@ -150,7 +154,7 @@
     if (selectedIndex === index && deviceState) return;
     selectedIndex = index;
     resetLiveControls();
-    message = '讀取裝置狀態...';
+    message = () => t('msg.readingState');
     await refreshState();
   }
 
@@ -158,7 +162,7 @@
     loading = true; error = '';
     try {
       devices = await Service.ListDevices();
-      if (!devices.length) { deviceState = null; message = '未偵測到支援的 INZONE 裝置。請確認 USB/HID 權限與 udev rule。'; return; }
+      if (!devices.length) { deviceState = null; message = () => t('msg.noDevices'); return; }
       if (!devices.some((d) => d.index === selectedIndex)) selectedIndex = devices[0].index;
       await refreshState();
     } catch (err) { error = String(err); } finally { loading = false; }
@@ -172,20 +176,20 @@
     try {
       const nextState = await Service.GetDeviceState(selectedIndex);
       if (requestId !== stateRequestId) return;
-      deviceState = nextState; syncControls(nextState); message = `已讀取 ${nextState?.device.model ?? 'device'}`;
+      deviceState = nextState; syncControls(nextState); const model = nextState?.device.model ?? 'device'; message = () => t('msg.loaded', { model });
     } catch (err) { error = String(err); } finally { loading = false; }
   }
 
-  async function applyControl(label: string, action: () => Promise<void>, refresh = true) {
+  async function applyControl(label: Label, action: () => Promise<void>, refresh = true) {
     loading = true; error = '';
-    try { await action(); message = `${label} 已送出`; if (refresh) await refreshState(); } catch (err) { error = String(err); } finally { loading = false; }
+    try { await action(); message = () => t('msg.sent', { label: typeof label === 'function' ? label() : label }); if (refresh) await refreshState(); } catch (err) { error = String(err); } finally { loading = false; }
   }
 
   async function repairUdevPermissions() {
-    loading = true; error = ''; message = '等待系統授權以修復 udev 權限...';
+    loading = true; error = ''; message = () => t('msg.repairWaiting');
     try {
       await Service.RepairUdevPermissions();
-      message = 'udev 權限已修復，請重新插拔裝置或重新掃描。';
+      message = () => t('msg.repairDone');
       await refreshDevices();
     } catch (err) {
       error = String(err);
@@ -194,7 +198,7 @@
     }
   }
 
-  function liveApply(key: string, label: string, action: () => Promise<void>) {
+  function liveApply(key: string, label: Label, action: () => Promise<void>) {
     window.clearTimeout(liveTimers[key]);
     liveTimers[key] = window.setTimeout(() => {
       void applyControl(label, action, false);
@@ -236,7 +240,8 @@
     const next = { id: Date.now(), name: profileName, preset: selectedPreset, axis: selectedAxis, eq: [...eqValues], controls };
     profiles = [next, ...profiles.filter((p) => p.name !== profileName)];
     localStorage.setItem('linzone.profiles', JSON.stringify(profiles));
-    message = `已儲存 profile：${profileName}`;
+    const name = profileName;
+    message = () => t('msg.profileSaved', { name });
   }
 
   function loadProfile(profile: Profile) {
@@ -259,10 +264,15 @@
     mouseBlue = Number(profile.controls.mouseBlue ?? mouseBlue);
     mouseMotionSync = Boolean(profile.controls.mouseMotionSync ?? mouseMotionSync);
     mouseSensorSnap = Boolean(profile.controls.mouseSensorSnap ?? mouseSensorSnap);
-    message = `已載入 profile：${profile.name}`;
+    const name = profile.name;
+    message = () => t('msg.profileLoaded', { name });
   }
 
-  function exportProfiles() { message = JSON.stringify(profiles); }
+  function exportProfiles() { const json = JSON.stringify(profiles); message = () => json; }
+
+  $effect(() => {
+    document.documentElement.lang = localeOptions.find((option) => option.id === getLocale())?.htmlLang ?? 'en';
+  });
 
   $effect(() => {
     fetch('/inzone-assets/model_icon_map.json').then((r) => r.json()).then((value) => (modelMap = value)).catch(() => undefined);
@@ -275,25 +285,32 @@
 <main class="shell">
   <section class="topbar">
     <div class="brand"><img src="/inzone-assets/resources/app_notify_icon.png" alt="" /><div><h1>LINZONE Hub</h1><p>Unofficial Linux controller for INZONE headset features</p></div></div>
-    <div class="actions"><button class="primary" onclick={refreshDevices} disabled={loading}>重新掃描</button><button onclick={refreshState} disabled={loading || devices.length === 0}>刷新狀態</button></div>
+    <div class="actions">
+      <div class="lang-toggle" role="group" aria-label={t('lang.label')}>
+        {#each localeOptions as option}
+          <button class:active={getLocale() === option.id} aria-pressed={getLocale() === option.id} lang={option.htmlLang} onclick={() => setLocale(option.id)}>{option.label}</button>
+        {/each}
+      </div>
+      <button class="primary" onclick={refreshDevices} disabled={loading}>{t('action.rescan')}</button><button onclick={refreshState} disabled={loading || devices.length === 0}>{t('action.refreshState')}</button>
+    </div>
   </section>
 
-  {#if error}<div class="banner error">{error}</div>{:else}<div class="banner">{message}</div>{/if}
+  {#if error}<div class="banner error">{error}</div>{:else}<div class="banner">{message()}</div>{/if}
   {#if hasPermissionWarning(deviceState)}
     <div class="banner warning">
-      <span>偵測到 hidraw 權限不足，部分控制功能無法開啟裝置。</span>
-      <button onclick={repairUdevPermissions} disabled={loading}>修復 udev 權限</button>
+      <span>{t('warn.hidrawPermission')}</span>
+      <button onclick={repairUdevPermissions} disabled={loading}>{t('action.fixUdev')}</button>
     </div>
   {/if}
 
   <div class="layout">
     <aside class="sidebar">
-      <div class="panel-title"><h2>裝置</h2><span>{devices.length}</span></div>
+      <div class="panel-title"><h2>{t('sidebar.devices')}</h2><span>{devices.length}</span></div>
       {#each devices as device}
         <button class:active={selectedIndex === device.index} class="device-card" onclick={() => selectDevice(device.index)}>
           <img src={deviceIcon(device)} alt="" /><span><strong>{device.model}</strong><small>{device.product || 'INZONE device'}</small></span>
         </button>
-      {:else}<p class="muted">沒有耳機/耳塞。</p>{/each}
+      {:else}<p class="muted">{t('sidebar.empty')}</p>{/each}
       <div class="mini-status"><b>{activeDevice()?.model ?? 'No device'}</b><span>{batterySummary(deviceState)}</span></div>
     </aside>
 
@@ -303,7 +320,7 @@
       {#if activeTab === 'Live'}
         <article class="panel hero-device">
           <img src={activeDevice() ? deviceIcon(activeDevice()!) : '/inzone-assets/raw/resources/menu_headset.png'} alt="" />
-          <div><h2>{activeDevice()?.model ?? 'INZONE device'}</h2><p>{deviceState?.device.product || '已連線'}</p></div>
+          <div><h2>{activeDevice()?.model ?? 'INZONE device'}</h2><p>{deviceState?.device.product || t('device.connected')}</p></div>
           <div class="state-pills">
             <span>{batterySummary(deviceState)}</span>
             {#if isMouseDevice(activeDevice())}
@@ -316,7 +333,7 @@
 
         {#if isMouseDevice(activeDevice())}
           <article class="panel controls">
-            <div class="panel-title"><h2>Mouse-A 控制</h2><span>Protocol A</span></div>
+            <div class="panel-title"><h2>{t('mouse.controlsTitle')}</h2><span>Protocol A</span></div>
             <div class="control-grid live-only">
               <label>Profile <b>{mouseProfile}</b><input type="range" min="1" max="4" step="1" bind:value={mouseProfile} oninput={(event) => { const value = inputNumber(event); mouseProfile = value; liveApply('mouseProfile', 'Mouse profile', () => Service.SetMouseProfile(selectedIndex, value)); }} /></label>
               <label>DPI <b>{mouseDpi}</b><input type="range" min="50" max="30000" step="50" bind:value={mouseDpi} oninput={(event) => { const value = inputNumber(event); mouseDpi = value; liveApply('mouseDPI', 'Mouse DPI', () => Service.SetMouseDPI(selectedIndex, value)); }} /></label>
@@ -329,23 +346,23 @@
               <label class="check"><input type="checkbox" bind:checked={mouseMotionSync} onchange={() => applyControl('Mouse motion sync', () => Service.SetMouseMotionSync(selectedIndex, mouseMotionSync))} /> Motion Sync</label>
               <label class="check"><input type="checkbox" bind:checked={mouseSensorSnap} onchange={() => applyControl('Mouse angle snapping', () => Service.SetMouseSensorSnap(selectedIndex, mouseSensorSnap))} /> Angle snapping</label>
             </div>
-            <div class="button-row"><button class="primary" onclick={() => applyControl('Save Mouse-A profile', () => Service.SaveMouseToProfile(selectedIndex))}>寫入裝置 Profile</button><button onclick={() => applyControl('Reset Mouse-A defaults', () => Service.ResetMouseToDefault(selectedIndex))}>恢復預設</button></div>
+            <div class="button-row"><button class="primary" onclick={() => applyControl('Save Mouse-A profile', () => Service.SaveMouseToProfile(selectedIndex))}>{t('action.writeDeviceProfile')}</button><button onclick={() => applyControl('Reset Mouse-A defaults', () => Service.ResetMouseToDefault(selectedIndex))}>{t('action.restoreDefaults')}</button></div>
           </article>
         {:else}
           <article class="panel controls">
-            <div class="panel-title"><h2>音訊控制</h2><span>即時套用</span></div>
+            <div class="panel-title"><h2>{t('audio.title')}</h2><span>{t('audio.liveApply')}</span></div>
             <div class="control-grid live-only">
-              <label>耳機音量 <b>{headphoneVolume}{headphoneVolumeUnit()}</b><input type="range" min="0" max={headphoneVolumeMax()} bind:value={headphoneVolume} oninput={(event) => { const value = inputNumber(event); headphoneVolume = value; liveApply('headphoneVolume', '耳機音量', () => Service.SetHeadphoneVolume(selectedIndex, value)); }} /></label>
-              <label>麥克風音量 <b>{micVolume}%</b><input type="range" min="0" max="100" bind:value={micVolume} oninput={(event) => { const value = inputNumber(event); micVolume = value; liveApply('micVolume', '麥克風音量', () => Service.SetMicVolume(selectedIndex, value)); }} /></label>
+              <label>{t('ctl.headphoneVolume')} <b>{headphoneVolume}{headphoneVolumeUnit()}</b><input type="range" min="0" max={headphoneVolumeMax()} bind:value={headphoneVolume} oninput={(event) => { const value = inputNumber(event); headphoneVolume = value; liveApply('headphoneVolume', () => t('ctl.headphoneVolume'), () => Service.SetHeadphoneVolume(selectedIndex, value)); }} /></label>
+              <label>{t('ctl.micVolume')} <b>{micVolume}%</b><input type="range" min="0" max="100" bind:value={micVolume} oninput={(event) => { const value = inputNumber(event); micVolume = value; liveApply('micVolume', () => t('ctl.micVolume'), () => Service.SetMicVolume(selectedIndex, value)); }} /></label>
               <label>Sidetone <b>{sidetone}%</b><input type="range" min="0" max="100" bind:value={sidetone} oninput={(event) => { const value = inputNumber(event); sidetone = value; liveApply('sidetone', 'Sidetone', () => Service.SetSidetone(selectedIndex, value)); }} /></label>
               <label>Game / Chat mix <b>{gameChatMix}%</b><input type="range" min="0" max="100" bind:value={gameChatMix} oninput={(event) => { const value = inputNumber(event); gameChatMix = value; liveApply('gameChatMix', 'Game / Chat mix', () => Service.SetGameChatMix(selectedIndex, value)); }} /></label>
             </div>
           </article>
 
           <article class="panel">
-            <div class="panel-title"><h2>Noise Canceling / Ambient</h2><span>環境音控制</span></div>
+            <div class="panel-title"><h2>Noise Canceling / Ambient</h2><span>{t('ambient.subtitle')}</span></div>
             <div class="row four">
-              <label>模式<select bind:value={ambientMode} onchange={applyAmbientLive}><option value={0}>Off</option><option value={1}>Noise canceling</option><option value={2}>Ambient</option><option value={3}>Custom</option></select></label>
+              <label>{t('ambient.mode')}<select bind:value={ambientMode} onchange={applyAmbientLive}><option value={0}>Off</option><option value={1}>Noise canceling</option><option value={2}>Ambient</option><option value={3}>Custom</option></select></label>
               <label>Ambient level <b>{ambientLevel}%</b><input type="range" min="0" max="100" bind:value={ambientLevel} oninput={(event) => { ambientLevel = inputNumber(event); applyAmbientLive(); }} /></label>
               <label class="check"><input type="checkbox" bind:checked={voiceFocus} onchange={applyAmbientLive} /> Voice focus</label>
             </div>
@@ -356,33 +373,33 @@
       {#if activeTab === 'Profiles'}
         {#if isMouseDevice(activeDevice())}
           <article class="panel">
-            <div class="panel-title"><h2>Mouse-A profile</h2><span>裝置內設定</span></div>
-            <div class="row three"><label>Current profile<select bind:value={mouseProfile} onchange={() => applyControl('Mouse profile', () => Service.SetMouseProfile(selectedIndex, Number(mouseProfile)))}><option value={1}>Profile 1</option><option value={2}>Profile 2</option><option value={3}>Profile 3</option><option value={4}>Profile 4</option></select></label><button class="primary" onclick={() => applyControl('Save Mouse-A profile', () => Service.SaveMouseToProfile(selectedIndex))}>寫入目前設定</button><button onclick={() => applyControl('Reset Mouse-A defaults', () => Service.ResetMouseToDefault(selectedIndex))}>恢復預設</button></div>
-            <p class="muted">Save to profile 會把目前 DPI、Polling rate、LOD、LED、Motion Sync、Angle snapping 與按鍵配置寫進目前的滑鼠 profile。Profile 名稱封包文件不完整，未在 GUI 中猜測實作。</p>
+            <div class="panel-title"><h2>Mouse-A profile</h2><span>{t('profiles.mouseSubtitle')}</span></div>
+            <div class="row three"><label>Current profile<select bind:value={mouseProfile} onchange={() => applyControl('Mouse profile', () => Service.SetMouseProfile(selectedIndex, Number(mouseProfile)))}><option value={1}>Profile 1</option><option value={2}>Profile 2</option><option value={3}>Profile 3</option><option value={4}>Profile 4</option></select></label><button class="primary" onclick={() => applyControl('Save Mouse-A profile', () => Service.SaveMouseToProfile(selectedIndex))}>{t('profiles.writeCurrent')}</button><button onclick={() => applyControl('Reset Mouse-A defaults', () => Service.ResetMouseToDefault(selectedIndex))}>{t('action.restoreDefaults')}</button></div>
+            <p class="muted">{t('profiles.mouseNote')}</p>
           </article>
         {:else}
           <article class="panel">
-            <div class="panel-title"><h2>Profiles / 10-band EQ</h2><span>設定檔</span></div>
-            <div class="row four"><input bind:value={profileName} aria-label="profile name" /><select bind:value={selectedPreset}>{#each eqPresets as preset}<option>{preset}</option>{/each}</select><select bind:value={selectedAxis}>{#each eqAxes as axis}<option>{axis}</option>{/each}</select><button class="primary" onclick={saveProfile}>儲存</button></div>
+            <div class="panel-title"><h2>Profiles / 10-band EQ</h2><span>{t('profiles.subtitle')}</span></div>
+            <div class="row four"><input bind:value={profileName} aria-label="profile name" /><select bind:value={selectedPreset}>{#each eqPresets as preset}<option>{preset}</option>{/each}</select><select bind:value={selectedAxis}>{#each eqAxes as axis}<option>{axis}</option>{/each}</select><button class="primary" onclick={saveProfile}>{t('profiles.save')}</button></div>
             <div class="eq-grid">{#each eqBands as band, index}<label><span>{band}Hz</span><input type="range" min="-10" max="10" bind:value={eqValues[index]} /><b>{eqValues[index]} dB</b></label>{/each}</div>
-            <div class="profile-list">{#each profiles as profile}<button onclick={() => loadProfile(profile)}><strong>{profile.name}</strong><span>{profile.preset} · {profile.axis}</span></button>{/each}<button onclick={exportProfiles}>匯出 JSON</button></div>
+            <div class="profile-list">{#each profiles as profile}<button onclick={() => loadProfile(profile)}><strong>{profile.name}</strong><span>{profile.preset} · {profile.axis}</span></button>{/each}<button onclick={exportProfiles}>{t('profiles.exportJson')}</button></div>
           </article>
         {/if}
       {/if}
 
       {#if activeTab === 'Bluetooth'}
         {#if isMouseDevice(activeDevice())}
-          <article class="panel"><div class="panel-title"><h2>Bluetooth controls</h2><span>不適用</span></div><p class="muted">Mouse-A 目前沒有 Bluetooth/音訊連線控制，請使用 Live、Profiles、Buttons 分頁。</p></article>
+          <article class="panel"><div class="panel-title"><h2>Bluetooth controls</h2><span>{t('common.notApplicable')}</span></div><p class="muted">{t('bt.mouseNote')}</p></article>
         {:else}
           <article class="panel">
-            <div class="panel-title"><h2>Bluetooth controls</h2><span>連線設定</span></div>
+            <div class="panel-title"><h2>Bluetooth controls</h2><span>{t('bt.subtitle')}</span></div>
             <div class="row four">
-              <label>音質優先<select bind:value={btQuality}><option value={0}>Standard</option><option value={1}>Sound quality</option><option value={2}>Stable connection</option></select></label>
+              <label>{t('bt.soundQualityPriority')}<select bind:value={btQuality}><option value={0}>Standard</option><option value={1}>Sound quality</option><option value={2}>Stable connection</option></select></label>
               <label>BT startup<select bind:value={btStartup}><option value={0}>Off</option><option value={1}>Last state</option><option value={2}>On</option></select></label>
               <label>Auto power off<select bind:value={autoPowerOff}>{#each autoPower as minutes}<option value={minutes}>{minutes === 0 ? 'Never' : `${minutes} min`}</option>{/each}</select></label>
               <label>Connection mode<select bind:value={connectionMode}><option value={0}>PC / USB</option><option value={1}>Bluetooth</option><option value={2}>Auto</option><option value={3}>Dual</option></select></label>
             </div>
-            <div class="button-row"><button onclick={() => applyControl('BT sound quality', () => Service.SetBTSoundQuality(selectedIndex, btQuality))}>套用音質</button><button onclick={() => applyControl('BT startup', () => Service.SetBTStartupMode(selectedIndex, btStartup))}>套用啟動</button><button onclick={() => applyControl('Auto power off', () => Service.SetAutoPowerOff(selectedIndex, autoPowerOff))}>套用自動關機</button><button onclick={() => applyControl('Connection mode', () => Service.SetConnectionDestinationMode(selectedIndex, connectionMode))}>套用連線</button></div>
+            <div class="button-row"><button onclick={() => applyControl('BT sound quality', () => Service.SetBTSoundQuality(selectedIndex, btQuality))}>{t('bt.applyQuality')}</button><button onclick={() => applyControl('BT startup', () => Service.SetBTStartupMode(selectedIndex, btStartup))}>{t('bt.applyStartup')}</button><button onclick={() => applyControl('Auto power off', () => Service.SetAutoPowerOff(selectedIndex, autoPowerOff))}>{t('bt.applyAutoOff')}</button><button onclick={() => applyControl('Connection mode', () => Service.SetConnectionDestinationMode(selectedIndex, connectionMode))}>{t('bt.applyConnection')}</button></div>
           </article>
         {/if}
       {/if}
@@ -395,7 +412,7 @@
               {#each deviceState?.mouse?.buttons ?? [] as button}
                 <button onclick={() => syncMouseButtonEditor(button)}><strong>{mouseButtonName(button.buttonIndex)}</strong><span>{mouseTypeDefText(button.typeDef)} · {mouseKeyText(button)}</span></button>
               {:else}
-                <p class="muted">尚未讀到按鍵配置，請刷新狀態。</p>
+                <p class="muted">{t('buttons.noneRead')}</p>
               {/each}
             </div>
             <div class="row four">
@@ -404,24 +421,24 @@
               <label>Type<select bind:value={mouseButtonTypeDef}>{#each mouseTypeDefs as item}<option value={item[0]}>{item[1]}</option>{/each}</select></label>
               <label>Key type<select bind:value={mouseButtonKeyType}>{#each mouseKeyTypes as item}<option value={item[0]}>{item[1]}</option>{/each}</select></label>
             </div>
-            <div class="row three"><label>Key code 1<input type="number" min="0" max="255" bind:value={mouseButtonKeyCode1} /></label><label>Key code 2 / modifier<input type="number" min="0" max="255" bind:value={mouseButtonKeyCode2} /></label><button class="primary" onclick={applyMouseButton}>套用按鍵</button></div>
-            <p class="muted">Keyboard remap 可用 Key type=Keyboard、Key code 1=HID keycode、Key code 2=modifier bitmask。Modifier: LCtrl=1, LShift=2, LAlt=4, LWin=8, RCtrl=16, RShift=32, RAlt=64, RWin=128。</p>
+            <div class="row three"><label>Key code 1<input type="number" min="0" max="255" bind:value={mouseButtonKeyCode1} /></label><label>Key code 2 / modifier<input type="number" min="0" max="255" bind:value={mouseButtonKeyCode2} /></label><button class="primary" onclick={applyMouseButton}>{t('buttons.apply')}</button></div>
+            <p class="muted">{t('buttons.mouseNote')}</p>
           </article>
         {:else}
           <article class="panel">
-            <div class="panel-title"><h2>Touch / button assignment</h2><span>按鍵功能</span></div>
-            <div class="row three"><label>按鍵<input type="number" min="0" max="15" bind:value={assignSlot} /></label><label>功能<select bind:value={assignAction}>{#each touchActions as action}<option value={action[1]}>{action[0]}</option>{/each}</select></label><button class="primary" onclick={() => applyControl('Assignable action', () => Service.SetAssignableAction(selectedIndex, assignSlot, assignAction))}>指派</button></div>
+            <div class="panel-title"><h2>Touch / button assignment</h2><span>{t('buttons.assignSubtitle')}</span></div>
+            <div class="row three"><label>{t('buttons.slot')}<input type="number" min="0" max="15" bind:value={assignSlot} /></label><label>{t('buttons.function')}<select bind:value={assignAction}>{#each touchActions as action}<option value={action[1]}>{action[0]}</option>{/each}</select></label><button class="primary" onclick={() => applyControl('Assignable action', () => Service.SetAssignableAction(selectedIndex, assignSlot, assignAction))}>{t('buttons.assign')}</button></div>
           </article>
         {/if}
       {/if}
 
       {#if activeTab === 'Spatial'}
         {#if isMouseDevice(activeDevice())}
-          <article class="panel"><div class="panel-title"><h2>HRTF / 360 Spatial</h2><span>不適用</span></div><p class="muted">Mouse-A 不支援耳機空間音訊控制。</p></article>
+          <article class="panel"><div class="panel-title"><h2>HRTF / 360 Spatial</h2><span>{t('common.notApplicable')}</span></div><p class="muted">{t('spatial.mouseNote')}</p></article>
         {:else}
           <article class="panel spatial">
             <img src="/inzone-assets/raw/resources/surround_010_on.png" alt="" />
-            <div><h2>HRTF / 360 Spatial</h2><p>360 Spatial / Surround</p><label class="check"><input type="checkbox" bind:checked={surroundEnabled} /> Surround enabled</label><button class="primary" onclick={applySpatial}>套用 Surround</button></div>
+            <div><h2>HRTF / 360 Spatial</h2><p>360 Spatial / Surround</p><label class="check"><input type="checkbox" bind:checked={surroundEnabled} /> Surround enabled</label><button class="primary" onclick={applySpatial}>{t('spatial.apply')}</button></div>
           </article>
         {/if}
       {/if}

@@ -9,6 +9,7 @@ It provides a Wails/Svelte GUI, a Go CLI, Arch Linux packaging, and an optional 
 ## Features
 
 - Desktop GUI for Sony INZONE device status and controls.
+- GUI available in English and Traditional Chinese (繁體中文). The language follows your system language (falling back to English if it isn't supported), and can be switched with the toggle in the top bar; your choice is remembered.
 - CLI tooling for probing and debugging INZONE HID / serial protocols.
 - INZONE Buds battery support for left earbud, right earbud, and case.
 - INZONE H9 / H7 USB VCOM serial support for supported H9/H7 modes.
