@@ -30,6 +30,7 @@ SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ec2", GROUP:="input", MODE:="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ec3", GROUP:="input", MODE:="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0fa8", GROUP:="input", MODE:="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0fa9", GROUP:="input", MODE:="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0f80", GROUP:="input", MODE:="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0f81", GROUP:="input", MODE:="0660", TAG+="uaccess"
 SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0fc0", GROUP:="input", MODE:="0660", TAG+="uaccess"
@@ -223,6 +224,10 @@ func (s *Service) GetDeviceState(index int) (*DeviceState, error) {
 	}
 	defer cleanup()
 	state.Device = openInfo
+	if usb.IsH9II(info.ProductID) {
+		readH9IIState(protocol.NewLink(dev), state)
+		return state, nil
+	}
 
 	if info.IsBuds {
 		buds := airoha.OpenBuds(dev)
@@ -357,6 +362,9 @@ func (s *Service) SetHeadphoneVolume(index int, percent int) error {
 			}
 			return airoha.OpenBuds(dev).SetHeadphoneVolume(pct)
 		}
+		if usb.IsH9II(info.ProductID) {
+			return h9iiSet(dev, protocol.EvtHeadphoneVolume, h9iiVolumeParam(percent))
+		}
 		return protocol.SetHeadphoneVolume(dev, false, raw, pct)
 	})
 }
@@ -375,6 +383,10 @@ func (s *Service) SetMicVolume(index int, percent int) error {
 	return withHeadset(index, func(dev *hid.Device, info DeviceSummary) error {
 		if info.IsBuds {
 			return airoha.OpenBuds(dev).SetMicVolume(pct)
+		}
+		if usb.IsH9II(info.ProductID) {
+			// no hardware mic gain: the headset only reports a mute flag (the boom switch)
+			return h9iiUnavailable("microphone volume")
 		}
 		return protocol.SetMicVolume(dev, false, raw, pct)
 	})
@@ -395,6 +407,9 @@ func (s *Service) SetSidetone(index int, percent int) error {
 		if info.IsBuds {
 			return airoha.OpenBuds(dev).SetSidetone(pct)
 		}
+		if usb.IsH9II(info.ProductID) {
+			return h9iiSet(dev, protocol.EvtSidetoneVolume, h9iiSidetoneParam(percent))
+		}
 		return protocol.SetSidetone(dev, raw, pct)
 	})
 }
@@ -412,6 +427,13 @@ func (s *Service) SetGameChatMix(index int, balance int) error {
 	return withHeadset(index, func(dev *hid.Device, info DeviceSummary) error {
 		if info.IsBuds {
 			return airoha.OpenBuds(dev).SetGameChatMix(pct)
+		}
+		if usb.IsH9II(info.ProductID) {
+			param, err := h9iiMixParam(balance)
+			if err != nil {
+				return err
+			}
+			return h9iiSet(dev, protocol.EvtGameChatMix, param)
 		}
 		return protocol.SetGameChatMix(dev, pct)
 	})
@@ -439,6 +461,13 @@ func (s *Service) SetAmbient(index int, mode int, level int, voiceFocus bool) er
 		if info.IsBuds {
 			return airoha.OpenBuds(dev).SetAmbient(byte(mode), pct, voiceFocus)
 		}
+		if usb.IsH9II(info.ProductID) {
+			param, err := h9iiAmbientParam(mode, level, voiceFocus)
+			if err != nil {
+				return err
+			}
+			return h9iiSet(dev, protocol.EvtAmbSetting, param)
+		}
 		return protocol.SetAmbient(dev, byte(mode), raw, pct, voiceFocus)
 	})
 }
@@ -457,6 +486,9 @@ func (s *Service) SetSurround(index int, enabled bool) error {
 		if info.IsBuds {
 			return airoha.OpenBuds(dev).SetSurround(enabled)
 		}
+		if usb.IsH9II(info.ProductID) {
+			return h9iiUnavailable("surround")
+		}
 		return protocol.SetSurround(dev, enabled)
 	})
 }
@@ -471,7 +503,9 @@ func (s *Service) SetNCStartupMode(index int, mode int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtNCStartupMode, []byte{value})
 	}
-	return headsetOnly(index, "NC startup mode", func(dev *hid.Device) error {
+	return forHeadset(index, "NC startup mode", func(l *protocol.Link) error {
+		return h9iiSetLink(l, protocol.EvtNCStartupMode, []byte{value})
+	}, func(dev *hid.Device) error {
 		return protocol.SetNCStartupMode(dev, value)
 	})
 }
@@ -486,7 +520,7 @@ func (s *Service) SetBTSoundQuality(index int, mode int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtBTSoundQuality, []byte{value})
 	}
-	return headsetOnly(index, "Bluetooth sound quality", func(dev *hid.Device) error {
+	return forHeadset(index, "Bluetooth sound quality", nil, func(dev *hid.Device) error {
 		return protocol.SetBTSoundQuality(dev, value)
 	})
 }
@@ -501,7 +535,9 @@ func (s *Service) SetBTStartupMode(index int, mode int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtBTStartupMode, []byte{value})
 	}
-	return headsetOnly(index, "Bluetooth startup mode", func(dev *hid.Device) error {
+	return forHeadset(index, "Bluetooth startup mode", func(l *protocol.Link) error {
+		return h9iiSetLink(l, protocol.EvtBTStartupMode, []byte{value})
+	}, func(dev *hid.Device) error {
 		return protocol.SetBTStartupMode(dev, value)
 	})
 }
@@ -517,7 +553,9 @@ func (s *Service) SetAutoPowerOff(index int, minutes int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtAutoPowerOff, []byte{byte(minutes)})
 	}
-	return headsetOnly(index, "auto power off", func(dev *hid.Device) error {
+	return forHeadset(index, "auto power off", func(l *protocol.Link) error {
+		return h9iiAutoPowerOff(l, minutes)
+	}, func(dev *hid.Device) error {
 		return protocol.SetAutoPowerOff(dev, byte(minutes))
 	})
 }
@@ -532,7 +570,7 @@ func (s *Service) SetConnectionDestinationMode(index int, mode int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtConnectionDest, []byte{value})
 	}
-	return headsetOnly(index, "connection destination mode", func(dev *hid.Device) error {
+	return forHeadset(index, "connection destination mode", nil, func(dev *hid.Device) error {
 		return protocol.SetConnectionDestinationMode(dev, value)
 	})
 }
@@ -547,7 +585,7 @@ func (s *Service) SetIncomingPermission(index int, enabled bool) error {
 		}
 		return withLegacySerialSet(base, protocol.EvtIncomingPerm, []byte{value})
 	}
-	return headsetOnly(index, "incoming permission", func(dev *hid.Device) error {
+	return forHeadset(index, "incoming permission", nil, func(dev *hid.Device) error {
 		return protocol.SetIncomingPermission(dev, enabled)
 	})
 }
@@ -566,7 +604,7 @@ func (s *Service) SetAssignableAction(index int, slot int, action int) error {
 	} else if ok {
 		return withLegacySerialSet(base, protocol.EvtAssignableParam, []byte{slotByte, actionByte})
 	}
-	return headsetOnly(index, "assignable settings", func(dev *hid.Device) error {
+	return forHeadset(index, "assignable settings", nil, func(dev *hid.Device) error {
 		return protocol.SetAssignableSettings(dev, []byte{slotByte, actionByte})
 	})
 }
@@ -811,7 +849,14 @@ func withHeadset(index int, fn func(*hid.Device, DeviceSummary) error) error {
 		return err
 	}
 	var lastErr error
+	tried := map[string]bool{}
 	for _, candidate := range candidates {
+		// A headset's HID collections share one device node; retrying a failed command on the same
+		// path would only repeat it (and, for a SET that went unacknowledged, send it again).
+		if tried[candidate.Path] {
+			continue
+		}
+		tried[candidate.Path] = true
 		dev, err := usb.Open(candidate)
 		if err != nil {
 			lastErr = fmt.Errorf("open %s %s: %w", candidate.Model, candidate.Path, err)
@@ -1088,15 +1133,7 @@ func getSimpleState(dev *hid.Device, eventID byte, warnings *[]string) *SimpleSt
 		appendProbeWarning(warnings, fmt.Sprintf("event %d", eventID), err)
 		return nil
 	}
-	raw := make([]int, len(pkt.Param))
-	for i, b := range pkt.Param {
-		raw[i] = int(b)
-	}
-	var value *int
-	if len(raw) > 0 {
-		value = intPtr(raw[0])
-	}
-	return &SimpleState{EventID: int(eventID), Value: value, Raw: raw}
+	return simpleStateFromParam(eventID, pkt.Param)
 }
 
 func appendProbeWarning(warnings *[]string, label string, err error) {
@@ -1104,15 +1141,6 @@ func appendProbeWarning(warnings *[]string, label string, err error) {
 		return
 	}
 	*warnings = append(*warnings, fmt.Sprintf("%s: %v", label, err))
-}
-
-func headsetOnly(index int, label string, fn func(*hid.Device) error) error {
-	return withHeadset(index, func(dev *hid.Device, info DeviceSummary) error {
-		if info.IsBuds {
-			return fmt.Errorf("%s command for INZONE Buds is not mapped yet", label)
-		}
-		return fn(dev)
-	})
 }
 
 func withMouse(index int, fn func(*hid.Device) error) error {

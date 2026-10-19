@@ -193,7 +193,7 @@ func BuildBudsHciSet(eventID byte, txID uint16, param []byte) []byte {
 
 func recvBudsRaw(dev *hid.Device, wait time.Duration) ([]byte, error) {
 	buf := make([]byte, 64)
-	n, err := dev.ReadWithTimeout(buf, wait)
+	n, err := protocol.ReadReport(dev, buf, wait)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("buds hci read timeout")

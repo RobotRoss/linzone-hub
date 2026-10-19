@@ -160,7 +160,7 @@ func SendHciReport(dev *hid.Device, payload []byte) error {
 // RecvHciReport reads one input report (with timeout) and returns the inner payload (after report ID + len)
 func RecvHciReport(dev *hid.Device) ([]byte, error) {
 	buf := make([]byte, 64)
-	n, err := dev.ReadWithTimeout(buf, hciReadTimeout)
+	n, err := ReadReport(dev, buf, hciReadTimeout)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("read timeout (no response from device)")
@@ -190,7 +190,7 @@ func SendHciRawReport(dev *hid.Device, payload []byte) error {
 
 func RecvHciRawReport(dev *hid.Device) ([]byte, error) {
 	buf := make([]byte, 65)
-	n, err := dev.ReadWithTimeout(buf, hciReadTimeout)
+	n, err := ReadReport(dev, buf, hciReadTimeout)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("read timeout (no response from device)")

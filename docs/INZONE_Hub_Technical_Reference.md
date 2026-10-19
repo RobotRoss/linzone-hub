@@ -30,7 +30,7 @@
 | `0x0E47` | 3655 | HDX_2961 | H3 | INZONE H7 (USB) | USB wired |
 | `0x0EBF` | 3775 | GH_M2 | HID | INZONE H5 (YY2976) | USB wired |
 | `0x0EC2` | 3778 | GTW | HID | INZONE Buds (YY2977) | USB wired |
-| `0x0FA8` | 4008 | GH_H2 | HID | INZONE H10 (YY2987) | USB wired |
+| `0x0FA8` | 4008 | GH_H2 | HID | INZONE H9 II (YY2987) | USB wired |
 | `0x0F80` | 3968 | GH_IE | H3 | INZONE E9 (YY2989, 3-pole) | USB wired |
 | `0x0F81` | 3969 | GH_IE | H3 | INZONE E9 (YY2989, 4-pole) | USB wired |
 | `0x0FC0` | 4032 | GH_OB | H3 | INZONE H6 Air (YY2990, 4-pole) | USB wired |
@@ -42,7 +42,7 @@
 |-----------|-------|----------|
 | `0x0EC0` | GH_M2 | PS5 |
 | `0x0EC3` | GTW | PS5 (mobile) |
-| `0x0FA9` | GH_H2 | PS5 (mobile) |
+| `0x0FA9` | GH_H2 | PS5 (mobile) — INZONE H9 II; transmitter switch on "Other" (verified: no HCI collection) |
 
 ### 1.2 Mouse (INZONE Mouse-A, YY2991)
 

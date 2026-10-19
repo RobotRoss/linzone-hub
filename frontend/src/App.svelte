@@ -19,6 +19,8 @@
   type Profile = { id: number; name: string; preset: string; axis: string; eq: number[]; controls: Record<string, number | boolean> };
   // A status label is either a literal or a thunk, so translated labels re-render on language change.
   type Label = string | (() => string);
+  // H9 II enumerates as this PID only when the transmitter switch is on "Other"; it has no control interface.
+  const H9_II_OTHER_MODE_PID = 0x0fa9;
   type ModelIconMap = { products?: Record<string, { marketing_name: string; icon_file: string }>; pid_map?: Record<string, string> };
 
   const eqBands = ['31.5', '63', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
@@ -29,6 +31,8 @@
     ['Mic mute', 1], ['Volume up', 2], ['Volume down', 3], ['NC / Ambient / Off', 4], ['Game up', 5], ['Chat up', 6], ['Play / Pause', 7], ['Previous', 8], ['Next', 9], ['Quick attention', 10], ['No function', 255],
   ];
   const autoPower = [0, 5, 15, 30, 60, 180];
+  // the only durations the Windows app was seen to use on the H9 II
+  const autoPowerH9II = [0, 15, 30, 180];
   const reportRates = [500, 1000, 2000, 4000, 8000];
   const mouseButtons = [[1, 'Left'], [2, 'Right'], [3, 'Middle'], [4, 'Side 1'], [5, 'Side 2']];
   const mouseTypeDefs = [[255, 'Default'], [0, 'Off'], [64, 'Remap']];
@@ -73,8 +77,43 @@
   function hex(value: number): string { return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`; }
   function batteryText(cell?: BatteryCell | null): string { return cell ? `${cell.percent}%` : 'N/A'; }
   function percentText(value?: number | null): string { return value === undefined || value === null ? 'N/A' : `${value}%`; }
+  // Event 97 (BT status) is an enable flag: 0 = Bluetooth off, 1 = on, independent of pairing (verified on an H9 II).
+  // Any other value is shown raw rather than guessed at.
+  function toggleText(state?: SimpleState | null): string {
+    const value = state?.value;
+    if (value === undefined || value === null) return 'N/A';
+    if (value === 0) return t('state.off');
+    if (value === 1) return t('state.on');
+    return String(value);
+  }
+  // The game/chat mix is a single 0-100 balance byte (sent to the headset unchanged). It is shown as two
+  // shares that always add up to 100%, in the order of the "Game / Chat" label.
+  // Orientation confirmed from captures of the Windows app: 0x00 = all Game, 0x64 = all Chat.
+  const MIX_VALUE_IS_CHAT_SHARE = true;
+  function mixText(value: number): string {
+    const share = Math.round(Math.max(0, Math.min(100, Number(value) || 0)));
+    const other = 100 - share;
+    return MIX_VALUE_IS_CHAT_SHARE ? `${other}% / ${share}%` : `${share}% / ${other}%`;
+  }
+  function mixStateText(state?: SimpleState | null): string {
+    return state?.value === undefined || state?.value === null ? 'N/A' : mixText(state.value);
+  }
+  // The H9 II's BT status is [radio, link]: link 1 means a device is connected (0 idle, 3 radio off).
+  function btChipText(state?: SimpleState | null): string {
+    const text = toggleText(state);
+    return onH9II && state?.value === 1 && state?.raw?.[1] === 1 ? `${text} · ${t('state.connected')}` : text;
+  }
+  // The H9 II has no hardware mic gain; the headset only reports whether the mic is muted.
+  function micStatusText(state?: VolumeState | null): string {
+    if (state === undefined || state === null) return 'N/A';
+    return state.mute === 1 ? t('mic.muted') : t('state.on');
+  }
   function stateText(state?: SimpleState | null): string { return state?.value === undefined || state?.value === null ? 'N/A' : String(state.value); }
   function activeDevice(): DeviceSummary | null { return devices.find((d) => d.index === selectedIndex) ?? null; }
+  // Any INZONE H9 II (0x0FA8 in PC mode, 0x0FA9 in "Other" mode). Its controls differ from the other headsets:
+  // no mic volume (it only reports mute), BT startup is ordered Off / On / Last state, and a few controls
+  // (BT sound quality, connection mode, surround, button assignment) are not answered over USB.
+  const onH9II = $derived(activeDevice()?.productId === 0x0fa8 || activeDevice()?.productId === H9_II_OTHER_MODE_PID);
   function isMouseDevice(device?: DeviceSummary | null): boolean { return device?.kind === 'mouse'; }
   function mouseButtonName(index: number): string { return mouseButtons.find(([value]) => value === index)?.[1] as string ?? `Button ${index}`; }
   function mouseTypeDefText(value: number): string { return mouseTypeDefs.find(([id]) => id === value)?.[1] as string ?? `0x${value.toString(16).toUpperCase().padStart(2, '0')}`; }
@@ -296,6 +335,9 @@
   </section>
 
   {#if error}<div class="banner error">{error}</div>{:else}<div class="banner">{message()}</div>{/if}
+  {#if activeDevice()?.productId === H9_II_OTHER_MODE_PID}
+    <div class="banner warning"><span>{t('warn.otherMode')}</span></div>
+  {/if}
   {#if hasPermissionWarning(deviceState)}
     <div class="banner warning">
       <span>{t('warn.hidrawPermission')}</span>
@@ -326,7 +368,7 @@
             {#if isMouseDevice(activeDevice())}
               <span>Profile {deviceState?.mouse?.currentProfile || 'N/A'}</span><span>DPI {deviceState?.mouse?.dpi || 'N/A'}</span><span>{deviceState?.mouse?.reportRateHz || 'N/A'} Hz</span>
             {:else}
-              <span>BT {stateText(deviceState?.btStatus)}</span><span>Mix {stateText(deviceState?.gameChatMix)}</span><span>Sidetone {percentText(deviceState?.sidetone?.percent)}</span>
+              <span>BT {btChipText(deviceState?.btStatus)}</span><span>Mix {mixStateText(deviceState?.gameChatMix)}</span><span>Sidetone {percentText(deviceState?.sidetone?.percent)}</span>
             {/if}
           </div>
         </article>
@@ -353,16 +395,21 @@
             <div class="panel-title"><h2>{t('audio.title')}</h2><span>{t('audio.liveApply')}</span></div>
             <div class="control-grid live-only">
               <label>{t('ctl.headphoneVolume')} <b>{headphoneVolume}{headphoneVolumeUnit()}</b><input type="range" min="0" max={headphoneVolumeMax()} bind:value={headphoneVolume} oninput={(event) => { const value = inputNumber(event); headphoneVolume = value; liveApply('headphoneVolume', () => t('ctl.headphoneVolume'), () => Service.SetHeadphoneVolume(selectedIndex, value)); }} /></label>
+              {#if onH9II}
+                <div class="readout">{t('ctl.mic')} <b>{micStatusText(deviceState?.micVolume)}</b></div>
+              {:else}
               <label>{t('ctl.micVolume')} <b>{micVolume}%</b><input type="range" min="0" max="100" bind:value={micVolume} oninput={(event) => { const value = inputNumber(event); micVolume = value; liveApply('micVolume', () => t('ctl.micVolume'), () => Service.SetMicVolume(selectedIndex, value)); }} /></label>
-              <label>Sidetone <b>{sidetone}%</b><input type="range" min="0" max="100" bind:value={sidetone} oninput={(event) => { const value = inputNumber(event); sidetone = value; liveApply('sidetone', 'Sidetone', () => Service.SetSidetone(selectedIndex, value)); }} /></label>
-              <label>Game / Chat mix <b>{gameChatMix}%</b><input type="range" min="0" max="100" bind:value={gameChatMix} oninput={(event) => { const value = inputNumber(event); gameChatMix = value; liveApply('gameChatMix', 'Game / Chat mix', () => Service.SetGameChatMix(selectedIndex, value)); }} /></label>
+              {/if}
+              <label>Sidetone <b>{sidetone}%</b><input type="range" min="0" max="100" step={onH9II ? 10 : 1} bind:value={sidetone} oninput={(event) => { const value = inputNumber(event); sidetone = value; liveApply('sidetone', 'Sidetone', () => Service.SetSidetone(selectedIndex, value)); }} /></label>
+              <label>Game / Chat mix <b>{mixText(gameChatMix)}</b><input type="range" min="0" max="100" bind:value={gameChatMix} oninput={(event) => { const value = inputNumber(event); gameChatMix = value; liveApply('gameChatMix', 'Game / Chat mix', () => Service.SetGameChatMix(selectedIndex, value)); }} /></label>
             </div>
+            {#if onH9II}<p class="muted">{t('h9ii.micNote')}</p>{/if}
           </article>
 
           <article class="panel">
             <div class="panel-title"><h2>Noise Canceling / Ambient</h2><span>{t('ambient.subtitle')}</span></div>
             <div class="row four">
-              <label>{t('ambient.mode')}<select bind:value={ambientMode} onchange={applyAmbientLive}><option value={0}>Off</option><option value={1}>Noise canceling</option><option value={2}>Ambient</option><option value={3}>Custom</option></select></label>
+              <label>{t('ambient.mode')}<select bind:value={ambientMode} onchange={applyAmbientLive}><option value={0}>Off</option><option value={1}>Noise canceling</option><option value={2}>Ambient</option>{#if !onH9II}<option value={3}>Custom</option>{/if}</select></label>
               <label>Ambient level <b>{ambientLevel}%</b><input type="range" min="0" max="100" bind:value={ambientLevel} oninput={(event) => { ambientLevel = inputNumber(event); applyAmbientLive(); }} /></label>
               <label class="check"><input type="checkbox" bind:checked={voiceFocus} onchange={applyAmbientLive} /> Voice focus</label>
             </div>
@@ -394,12 +441,13 @@
           <article class="panel">
             <div class="panel-title"><h2>Bluetooth controls</h2><span>{t('bt.subtitle')}</span></div>
             <div class="row four">
-              <label>{t('bt.soundQualityPriority')}<select bind:value={btQuality}><option value={0}>Standard</option><option value={1}>Sound quality</option><option value={2}>Stable connection</option></select></label>
-              <label>BT startup<select bind:value={btStartup}><option value={0}>Off</option><option value={1}>Last state</option><option value={2}>On</option></select></label>
-              <label>Auto power off<select bind:value={autoPowerOff}>{#each autoPower as minutes}<option value={minutes}>{minutes === 0 ? 'Never' : `${minutes} min`}</option>{/each}</select></label>
-              <label>Connection mode<select bind:value={connectionMode}><option value={0}>PC / USB</option><option value={1}>Bluetooth</option><option value={2}>Auto</option><option value={3}>Dual</option></select></label>
+              <label>{t('bt.soundQualityPriority')}<select bind:value={btQuality} disabled={onH9II}><option value={0}>Standard</option><option value={1}>Sound quality</option><option value={2}>Stable connection</option></select></label>
+              <label>BT startup<select bind:value={btStartup}><option value={0}>Off</option>{#if onH9II}<option value={1}>On</option><option value={2}>Last state</option>{:else}<option value={1}>Last state</option><option value={2}>On</option>{/if}</select></label>
+              <label>Auto power off<select bind:value={autoPowerOff}>{#each onH9II ? autoPowerH9II : autoPower as minutes}<option value={minutes}>{minutes === 0 ? 'Never' : `${minutes} min`}</option>{/each}</select></label>
+              <label>Connection mode<select bind:value={connectionMode} disabled={onH9II}><option value={0}>PC / USB</option><option value={1}>Bluetooth</option><option value={2}>Auto</option><option value={3}>Dual</option></select></label>
             </div>
-            <div class="button-row"><button onclick={() => applyControl('BT sound quality', () => Service.SetBTSoundQuality(selectedIndex, btQuality))}>{t('bt.applyQuality')}</button><button onclick={() => applyControl('BT startup', () => Service.SetBTStartupMode(selectedIndex, btStartup))}>{t('bt.applyStartup')}</button><button onclick={() => applyControl('Auto power off', () => Service.SetAutoPowerOff(selectedIndex, autoPowerOff))}>{t('bt.applyAutoOff')}</button><button onclick={() => applyControl('Connection mode', () => Service.SetConnectionDestinationMode(selectedIndex, connectionMode))}>{t('bt.applyConnection')}</button></div>
+            <div class="button-row"><button disabled={onH9II} onclick={() => applyControl('BT sound quality', () => Service.SetBTSoundQuality(selectedIndex, btQuality))}>{t('bt.applyQuality')}</button><button onclick={() => applyControl('BT startup', () => Service.SetBTStartupMode(selectedIndex, btStartup))}>{t('bt.applyStartup')}</button><button onclick={() => applyControl('Auto power off', () => Service.SetAutoPowerOff(selectedIndex, autoPowerOff))}>{t('bt.applyAutoOff')}</button><button disabled={onH9II} onclick={() => applyControl('Connection mode', () => Service.SetConnectionDestinationMode(selectedIndex, connectionMode))}>{t('bt.applyConnection')}</button></div>
+            {#if onH9II}<p class="muted">{t('h9ii.unavailable')}</p>{/if}
           </article>
         {/if}
       {/if}
@@ -427,7 +475,8 @@
         {:else}
           <article class="panel">
             <div class="panel-title"><h2>Touch / button assignment</h2><span>{t('buttons.assignSubtitle')}</span></div>
-            <div class="row three"><label>{t('buttons.slot')}<input type="number" min="0" max="15" bind:value={assignSlot} /></label><label>{t('buttons.function')}<select bind:value={assignAction}>{#each touchActions as action}<option value={action[1]}>{action[0]}</option>{/each}</select></label><button class="primary" onclick={() => applyControl('Assignable action', () => Service.SetAssignableAction(selectedIndex, assignSlot, assignAction))}>{t('buttons.assign')}</button></div>
+            <div class="row three"><label>{t('buttons.slot')}<input type="number" min="0" max="15" bind:value={assignSlot} disabled={onH9II} /></label><label>{t('buttons.function')}<select bind:value={assignAction} disabled={onH9II}>{#each touchActions as action}<option value={action[1]}>{action[0]}</option>{/each}</select></label><button class="primary" disabled={onH9II} onclick={() => applyControl('Assignable action', () => Service.SetAssignableAction(selectedIndex, assignSlot, assignAction))}>{t('buttons.assign')}</button></div>
+            {#if onH9II}<p class="muted">{t('h9ii.unavailable')}</p>{/if}
           </article>
         {/if}
       {/if}
@@ -438,7 +487,7 @@
         {:else}
           <article class="panel spatial">
             <img src="/inzone-assets/raw/resources/surround_010_on.png" alt="" />
-            <div><h2>HRTF / 360 Spatial</h2><p>360 Spatial / Surround</p><label class="check"><input type="checkbox" bind:checked={surroundEnabled} /> Surround enabled</label><button class="primary" onclick={applySpatial}>{t('spatial.apply')}</button></div>
+            <div><h2>HRTF / 360 Spatial</h2><p>360 Spatial / Surround</p><label class="check"><input type="checkbox" bind:checked={surroundEnabled} disabled={onH9II} /> Surround enabled</label><button class="primary" disabled={onH9II} onclick={applySpatial}>{t('spatial.apply')}</button>{#if onH9II}<p class="muted">{t('h9ii.unavailable')}</p>{/if}</div>
           </article>
         {/if}
       {/if}

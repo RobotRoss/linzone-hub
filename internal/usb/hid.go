@@ -24,7 +24,12 @@ var SupportedPIDs = map[uint16]string{
 	0x0E47: "INZONE H7 (USB)",
 	0x0EBF: "INZONE H5",
 	0x0EC2: "INZONE Buds",
-	0x0FA8: "INZONE H10",
+	0x0FA8: "INZONE H9 II",
+	// H9 II with the transmitter switch set to "Other" (not "PC"). In this mode the device
+	// exposes no Sony HCI control collection (only vendor 0xFF13 + media/telephony pages),
+	// so it cannot be controlled. Listed so it shows up and the GUI can tell the user to
+	// switch the transmitter to "PC" mode, in which it enumerates as 0x0FA8.
+	0x0FA9: "INZONE H9 II (Other mode)",
 	0x0F80: "INZONE E9 (3-pole)",
 	0x0F81: "INZONE E9 (4-pole)",
 	0x0FC0: "INZONE H6 Air (4-pole)",
@@ -74,6 +79,9 @@ func IsMouse(pid uint16) bool {
 func IsKeyboard(pid uint16) bool {
 	return pid == 0x0FB0 || pid == 0x0FB3
 }
+
+// IsH9II reports whether pid is an INZONE H9 II (0x0FA8 in PC mode, 0x0FA9 in "Other" mode).
+func IsH9II(pid uint16) bool { return pid == 0x0FA8 || pid == 0x0FA9 }
 
 func IsHeadset(pid uint16) bool {
 	if IsMouse(pid) || IsKeyboard(pid) {

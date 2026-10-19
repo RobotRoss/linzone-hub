@@ -31,7 +31,8 @@ The codebase also contains mappings for additional INZONE headset, mouse, and ke
 
 The DKMS battery module attempts broader experimental coverage for known INZONE runtime PIDs:
 
-- HID HCI headsets: H9 / H7 family, H5, H10, E9, and H6 Air.
+- HID HCI headsets: H9 / H7 family, H9 II, H5, E9, and H6 Air.
+  - INZONE H9 II: set the transmitter's mode switch to **PC**. In **Other** mode it enumerates as PID `0x0FA9` and exposes no control interface.
 - INZONE Buds / GTW, including separate left / right / case battery supplies.
 - Protocol A keyboard / mouse battery level reporting for INZONE Mouse-A and KBD-H75.
 

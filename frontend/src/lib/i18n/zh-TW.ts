@@ -17,11 +17,14 @@ export const zhTW: Record<MessageKey, string> = {
 
   'ctl.headphoneVolume': '耳機音量',
   'ctl.micVolume': '麥克風音量',
+  'ctl.mic': '麥克風',
+  'mic.muted': '已靜音',
 
   'action.rescan': '重新掃描',
   'action.refreshState': '刷新狀態',
   'warn.hidrawPermission': '偵測到 hidraw 權限不足，部分控制功能無法開啟裝置。',
   'action.fixUdev': '修復 udev 權限',
+  'warn.otherMode': '無法與裝置通訊；發射器是否處於「PC」模式？',
 
   'sidebar.devices': '裝置',
   'sidebar.empty': '沒有耳機/耳塞。',
@@ -43,6 +46,11 @@ export const zhTW: Record<MessageKey, string> = {
   'profiles.save': '儲存',
 
   'common.notApplicable': '不適用',
+  'state.on': '開啟',
+  'state.off': '關閉',
+  'state.connected': '已連線',
+  'h9ii.micNote': 'H9 II 沒有硬體麥克風音量，麥克風只能靜音。請在系統音效設定中調整麥克風音量。',
+  'h9ii.unavailable': 'H9 II 無法透過 USB 使用此功能。',
 
   'bt.mouseNote': 'Mouse-A 目前沒有 Bluetooth/音訊連線控制，請使用 Live、Profiles、Buttons 分頁。',
   'bt.subtitle': '連線設定',

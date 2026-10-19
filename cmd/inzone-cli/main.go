@@ -14,7 +14,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	Long: `INZONE Hub CLI - Command-line controller for Sony INZONE gaming peripherals.
 
-Supports headsets (H9, H7, H5, H10, etc.), mice, and keyboards via USB HID.
+Supports headsets (H9, H9 II, H7, H5, etc.), mice, and keyboards via USB HID.
 
 This is the command-line testing version. A GUI version using Wails v3 is planned.`,
 }

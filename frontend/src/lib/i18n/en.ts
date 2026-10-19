@@ -17,12 +17,15 @@ export const en = {
   // Control labels reused in status messages
   'ctl.headphoneVolume': 'Headphone volume',
   'ctl.micVolume': 'Microphone volume',
+  'ctl.mic': 'Microphone',
+  'mic.muted': 'Muted',
 
   // Top bar / permission banner
   'action.rescan': 'Rescan',
   'action.refreshState': 'Refresh state',
   'warn.hidrawPermission': "Insufficient hidraw permissions; some controls can't open the device.",
   'action.fixUdev': 'Fix udev permissions',
+  'warn.otherMode': 'Unable to communicate with device; is the transmitter in "PC" mode?',
 
   // Sidebar / hero
   'sidebar.devices': 'Devices',
@@ -48,6 +51,11 @@ export const en = {
 
   // Shared
   'common.notApplicable': 'Not applicable',
+  'state.on': 'On',
+  'state.off': 'Off',
+  'state.connected': 'connected',
+  'h9ii.micNote': 'The H9 II has no hardware microphone volume; its microphone can only be muted. Set the level in your system sound settings.',
+  'h9ii.unavailable': 'Not available on the H9 II over USB.',
 
   // Bluetooth tab
   'bt.mouseNote': 'Mouse-A has no Bluetooth/audio connection controls. Use the Live, Profiles and Buttons tabs.',

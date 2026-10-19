@@ -22,7 +22,7 @@ UPower should then expose matching devices under:
 - HID HCI headsets:
   - INZONE H9 / H7 family: `0x0E53`, `0x0E4C`, `0x0E61`, `0x0DFD`, `0x0E47`
   - INZONE H5: `0x0EBF`
-  - INZONE H10: `0x0FA8`
+  - INZONE H9 II: `0x0FA8`
   - INZONE E9: `0x0F80`, `0x0F81`
   - INZONE H6 Air: `0x0FC0`, `0x0FC1`
 - INZONE Buds / GTW PIDs: `0x0EC2`, `0x0EC3`

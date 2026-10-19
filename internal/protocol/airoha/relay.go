@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/sstallion/go-hid"
+
+	"github.com/patyhank/linzone-hub/internal/protocol"
 )
 
 const (
@@ -78,7 +80,7 @@ func (c *AirohaClient) SendFrame(f *RelayFrame) error {
 
 func (c *AirohaClient) RecvFrame() (*RelayFrame, error) {
 	buf := make([]byte, MaxRelayPayload)
-	n, err := c.dev.ReadWithTimeout(buf, c.timeout)
+	n, err := protocol.ReadReport(c.dev, buf, c.timeout)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("airoha relay read timeout")
@@ -107,7 +109,7 @@ func (c *AirohaClient) SendCommand(target byte, inner []byte) (*RelayFrame, erro
 
 func (c *AirohaClient) RecvRaw() ([]byte, error) {
 	buf := make([]byte, MaxRelayPayload)
-	n, err := c.dev.ReadWithTimeout(buf, c.timeout)
+	n, err := protocol.ReadReport(c.dev, buf, c.timeout)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("airoha relay read timeout")

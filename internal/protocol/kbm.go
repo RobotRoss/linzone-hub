@@ -69,7 +69,7 @@ func SendKBMReport(dev *hid.Device, payload []byte) error {
 // RecvKBMReport reads one input report (with timeout) and returns the payload (without report ID).
 func RecvKBMReport(dev *hid.Device) ([]byte, error) {
 	buf := make([]byte, ReportSizeKBM)
-	n, err := dev.ReadWithTimeout(buf, kbmReadTimeout)
+	n, err := ReadReport(dev, buf, kbmReadTimeout)
 	if err != nil {
 		if err == hid.ErrTimeout {
 			return nil, fmt.Errorf("read timeout (no response from device)")
