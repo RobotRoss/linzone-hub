@@ -60,6 +60,7 @@ const (
 	EvtAssignableCap     = 140
 	EvtAssignableParam   = 141
 	EvtIncomingPerm      = 142
+	EvtMicAttached       = 143 // boom mic attached (00) / removed (01); H9 II
 )
 
 // HciAddress IDs

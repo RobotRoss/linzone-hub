@@ -19,6 +19,8 @@ export const en = {
   'ctl.micVolume': 'Microphone volume',
   'ctl.mic': 'Microphone',
   'mic.muted': 'Muted',
+  'mic.attached': 'Attached',
+  'mic.detached': 'Detached',
 
   // Top bar / permission banner
   'action.rescan': 'Rescan',
@@ -54,7 +56,6 @@ export const en = {
   'state.on': 'On',
   'state.off': 'Off',
   'state.connected': 'connected',
-  'h9ii.micNote': 'The H9 II has no hardware microphone volume; its microphone can only be muted. Set the level in your system sound settings.',
   'h9ii.unavailable': 'Not available on the H9 II over USB.',
 
   // Bluetooth tab

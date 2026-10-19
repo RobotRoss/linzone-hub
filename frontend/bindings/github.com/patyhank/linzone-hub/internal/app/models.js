@@ -234,6 +234,13 @@ export class DeviceState {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {boolean | null | undefined}
+             */
+            this["micAttached"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {AmbientState | null | undefined}
              */
             this["ambient"] = undefined;

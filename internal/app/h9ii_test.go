@@ -73,6 +73,25 @@ func TestDecodersMatchTheDocumentedBytes(t *testing.T) {
 			t.Errorf("mic % X: %+v %v", c.param, mic, err)
 		}
 	}
+	// a real level, should a headset ever report one: percent byte wins, else the value byte
+	if m, _ := decodeH9IIMic([]byte{0x00, 0x20, 0x40}); m.Percent != 0x40 || m.Mute != 0 {
+		t.Errorf("mic with percent byte: %+v", m)
+	}
+	if m, _ := decodeH9IIMic([]byte{0x00, 0x20, 0xff}); m.Percent != 0x20 {
+		t.Errorf("mic with only a value byte: %+v", m)
+	}
+	for _, c := range []struct {
+		param    []byte
+		attached bool
+	}{{[]byte{0x00}, true}, {[]byte{0x01}, false}} { // event 143: 00 = connected, 01 = removed
+		got, err := decodeH9IIMicAttached(c.param)
+		if err != nil || got != c.attached {
+			t.Errorf("mic attached % X = %v %v, want %v", c.param, got, err, c.attached)
+		}
+	}
+	if _, err := decodeH9IIMicAttached(nil); err == nil {
+		t.Error("an empty mic attached payload must be an error")
+	}
 	amb, err := decodeH9IIAmbient([]byte{0x01, 0x0a, 0xff, 0x01}) // NC, level 10, voice focus on
 	if err != nil || amb.Mode != 1 || amb.AmbientRaw != 10 || amb.AmbientPercent != 47 || !amb.VoiceFocus {
 		t.Errorf("ambient: %+v %v", amb, err)
@@ -141,7 +160,7 @@ func h9iiReplies() map[byte][]byte {
 	model, _ := hex.DecodeString("0501ffffff00" + hex.EncodeToString([]byte("2004224\x002004224\x00")) + "01ff3f")
 	return map[byte][]byte{
 		2: model, 3: {1, 1, 0, 0, 1, 1, 0, 0}, 4: {0x00, 0x5e},
-		33: {0x00, 0x1e, 0xff}, 36: {0x01, 0xff, 0xff}, 65: {0x01, 0x0a, 0xff, 0x01},
+		33: {0x00, 0x1e, 0xff}, 36: {0x01, 0xff, 0xff}, 143: {0x00}, 65: {0x01, 0x0a, 0xff, 0x01},
 		34: {0x32}, 35: {0x03, 0xff}, 97: {0x01, 0x01}, 99: {0x01}, 129: {0x1e, 0x1e}, 67: {0x01},
 	}
 }
@@ -163,7 +182,11 @@ func TestReadH9IIStateFillsEverythingFromIndividualEvents(t *testing.T) {
 	if state.FirmwareRaw != "0101000001010000" {
 		t.Errorf("firmware %q", state.FirmwareRaw)
 	}
-	if state.HeadphoneVolume.Percent != 100 || state.MicVolume.Mute != 1 || state.Sidetone.Percent != 30 {
+	// boom attached (143 = 00) while the mic is muted (36 = 01): the mute button, not a removed boom
+	if state.MicAttached == nil || !*state.MicAttached || state.MicVolume.Mute != 1 {
+		t.Errorf("attached=%v mic=%+v", state.MicAttached, state.MicVolume)
+	}
+	if state.HeadphoneVolume.Percent != 100 || state.Sidetone.Percent != 30 {
 		t.Errorf("volume=%+v mic=%+v sidetone=%+v", state.HeadphoneVolume, state.MicVolume, state.Sidetone)
 	}
 	if a := state.Ambient; a.Mode != 1 || a.AmbientRaw != 10 || a.AmbientPercent != 47 || !a.VoiceFocus {
@@ -202,8 +225,8 @@ func TestReadH9IIStateAsksOnlyForEventsTheHeadsetAnswers(t *testing.T) {
 			t.Errorf("queried address %d, want the headset (%d)", d, protocol.AddrRX)
 		}
 	}
-	if len(q.events) != 12 {
-		t.Errorf("want 12 queries, got %d: %v", len(q.events), q.events)
+	if len(q.events) != 13 {
+		t.Errorf("want 13 queries, got %d: %v", len(q.events), q.events)
 	}
 }
 
@@ -225,7 +248,7 @@ func TestReadH9IIStateSurvivesOneMissedReply(t *testing.T) {
 	q := &fakeQuerier{replies: r}
 	state := &DeviceState{Warnings: []string{}}
 	readH9IIState(q, state)
-	if len(q.events) != 12 || state.Sidetone != nil || state.BTStatus == nil || state.NCStartupMode == nil {
+	if len(q.events) != 13 || state.Sidetone != nil || state.BTStatus == nil || state.NCStartupMode == nil {
 		t.Errorf("one miss should not stop the refresh: calls=%d sidetone=%v bt=%v", len(q.events), state.Sidetone, state.BTStatus)
 	}
 	if len(state.Warnings) != 1 || !strings.Contains(state.Warnings[0], "event 35") {
@@ -268,5 +291,19 @@ func TestReadH9IIStateWarnsOnAGarbledPayloadAndCarriesOn(t *testing.T) {
 	readH9IIState(q, state)
 	if state.HeadphoneVolume != nil || state.Ambient == nil || len(state.Warnings) != 1 || !strings.Contains(state.Warnings[0], "event 33") {
 		t.Errorf("volume=%v ambient=%v warnings=%v", state.HeadphoneVolume, state.Ambient, state.Warnings)
+	}
+}
+
+func TestReadH9IIStateReportsARemovedBoom(t *testing.T) {
+	r := h9iiReplies()
+	r[143] = []byte{0x01} // boom removed; the headset follows with mute on as well
+	q := &fakeQuerier{replies: r}
+	state := &DeviceState{Warnings: []string{}}
+	readH9IIState(q, state)
+	if state.MicAttached == nil || *state.MicAttached {
+		t.Errorf("a removed boom must read as detached, got %v", state.MicAttached)
+	}
+	if len(state.Warnings) != 0 {
+		t.Errorf("warnings: %v", state.Warnings)
 	}
 }

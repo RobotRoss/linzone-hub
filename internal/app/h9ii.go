@@ -77,9 +77,11 @@ func decodeH9IIVolume(p []byte) (*VolumeState, error) { // [mute, value 0-30, ff
 	return &VolumeState{Mute: int(p[0]), Raw: int(p[1]), Percent: h9IIPercentFromVolume(int(p[1]))}, nil
 }
 
-// decodeH9IIMic decodes event 36. The H9 II has no hardware mic gain (the value and percent
-// bytes are always ff), so only the mute flag carries information; Percent is left at 0.
-func decodeH9IIMic(p []byte) (*VolumeState, error) { // [mute, ff, ff]
+// decodeH9IIMic decodes event 36, [mute, value, percent]. Every capture so far has value and
+// percent at ff ("not applicable"), so in practice only the mute flag carries information and
+// Percent stays 0. If a headset ever reports a real level (value or percent <= 100) it is
+// passed through, preferring the percent byte as the Buds decoder does.
+func decodeH9IIMic(p []byte) (*VolumeState, error) {
 	if len(p) < 1 {
 		return nil, fmt.Errorf("mic payload too short")
 	}
@@ -87,7 +89,21 @@ func decodeH9IIMic(p []byte) (*VolumeState, error) { // [mute, ff, ff]
 	if len(p) > 1 {
 		v.Raw = int(p[1])
 	}
+	switch {
+	case len(p) > 2 && p[2] <= 100:
+		v.Percent = int(p[2])
+	case len(p) > 1 && p[1] <= 100:
+		v.Percent = int(p[1])
+	}
 	return v, nil
+}
+
+// decodeH9IIMicAttached decodes event 143: 00 = boom mic attached, 01 = removed.
+func decodeH9IIMicAttached(p []byte) (bool, error) {
+	if len(p) < 1 {
+		return false, fmt.Errorf("mic attached payload too short")
+	}
+	return p[0] == 0, nil
 }
 
 func decodeH9IIAmbient(p []byte) (*AmbientState, error) { // [mode, level 1-20, ff, focus]
@@ -176,6 +192,14 @@ var h9iiQueries = []h9iiQuery{
 	}},
 	{protocol.EvtHeadphoneVolume, func(s *DeviceState, p []byte) (err error) { s.HeadphoneVolume, err = decodeH9IIVolume(p); return }},
 	{protocol.EvtMicVolume, func(s *DeviceState, p []byte) (err error) { s.MicVolume, err = decodeH9IIMic(p); return }},
+	{protocol.EvtMicAttached, func(s *DeviceState, p []byte) error {
+		attached, err := decodeH9IIMicAttached(p)
+		if err != nil {
+			return err
+		}
+		s.MicAttached = &attached
+		return nil
+	}},
 	{protocol.EvtAmbSetting, func(s *DeviceState, p []byte) (err error) { s.Ambient, err = decodeH9IIAmbient(p); return }},
 	{protocol.EvtGameChatMix, func(s *DeviceState, p []byte) error {
 		s.GameChatMix = simpleStateFromParam(protocol.EvtGameChatMix, p)

@@ -103,10 +103,16 @@
     const text = toggleText(state);
     return onH9II && state?.value === 1 && state?.raw?.[1] === 1 ? `${text} · ${t('state.connected')}` : text;
   }
-  // The H9 II has no hardware mic gain; the headset only reports whether the mic is muted.
-  function micStatusText(state?: VolumeState | null): string {
-    if (state === undefined || state === null) return 'N/A';
-    return state.mute === 1 ? t('mic.muted') : t('state.on');
+  // H9 II microphone readout. Event 143 says whether the boom is attached; event 36 says whether the mic
+  // is muted (the boom button, or the headset muting itself when the boom is removed). A detached boom has
+  // no meaningful mute or level, so it reads just "Detached". Attached shows "Muted" or the level when the
+  // headset reports one (value/percent bytes of 0xFF mean "not applicable" and show no level).
+  function micStatusText(state?: VolumeState | null, attached?: boolean | null): string {
+    if (attached === false) return t('mic.detached');
+    if (state === undefined || state === null) return attached ? t('mic.attached') : 'N/A';
+    if (attached === undefined || attached === null) return state.mute === 1 ? t('mic.muted') : t('state.on');
+    if (state.mute === 1) return `${t('mic.attached')} - ${t('mic.muted')}`;
+    return state.raw <= 100 ? `${t('mic.attached')} - ${state.percent}%` : t('mic.attached');
   }
   function stateText(state?: SimpleState | null): string { return state?.value === undefined || state?.value === null ? 'N/A' : String(state.value); }
   function activeDevice(): DeviceSummary | null { return devices.find((d) => d.index === selectedIndex) ?? null; }
@@ -396,14 +402,13 @@
             <div class="control-grid live-only">
               <label>{t('ctl.headphoneVolume')} <b>{headphoneVolume}{headphoneVolumeUnit()}</b><input type="range" min="0" max={headphoneVolumeMax()} bind:value={headphoneVolume} oninput={(event) => { const value = inputNumber(event); headphoneVolume = value; liveApply('headphoneVolume', () => t('ctl.headphoneVolume'), () => Service.SetHeadphoneVolume(selectedIndex, value)); }} /></label>
               {#if onH9II}
-                <div class="readout">{t('ctl.mic')} <b>{micStatusText(deviceState?.micVolume)}</b></div>
+                <div class="readout">{t('ctl.mic')} <b>{micStatusText(deviceState?.micVolume, deviceState?.micAttached)}</b></div>
               {:else}
               <label>{t('ctl.micVolume')} <b>{micVolume}%</b><input type="range" min="0" max="100" bind:value={micVolume} oninput={(event) => { const value = inputNumber(event); micVolume = value; liveApply('micVolume', () => t('ctl.micVolume'), () => Service.SetMicVolume(selectedIndex, value)); }} /></label>
               {/if}
               <label>Sidetone <b>{sidetone}%</b><input type="range" min="0" max="100" step={onH9II ? 10 : 1} bind:value={sidetone} oninput={(event) => { const value = inputNumber(event); sidetone = value; liveApply('sidetone', 'Sidetone', () => Service.SetSidetone(selectedIndex, value)); }} /></label>
               <label>Game / Chat mix <b>{mixText(gameChatMix)}</b><input type="range" min="0" max="100" bind:value={gameChatMix} oninput={(event) => { const value = inputNumber(event); gameChatMix = value; liveApply('gameChatMix', 'Game / Chat mix', () => Service.SetGameChatMix(selectedIndex, value)); }} /></label>
             </div>
-            {#if onH9II}<p class="muted">{t('h9ii.micNote')}</p>{/if}
           </article>
 
           <article class="panel">

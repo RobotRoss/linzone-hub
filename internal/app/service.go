@@ -141,6 +141,7 @@ type DeviceState struct {
 	Battery         BatteryState  `json:"battery"`
 	HeadphoneVolume *VolumeState  `json:"headphoneVolume,omitempty"`
 	MicVolume       *VolumeState  `json:"micVolume,omitempty"`
+	MicAttached     *bool         `json:"micAttached,omitempty"`
 	Ambient         *AmbientState `json:"ambient,omitempty"`
 	Mouse           *MouseState   `json:"mouse,omitempty"`
 	GameChatMix     *SimpleState  `json:"gameChatMix,omitempty"`
