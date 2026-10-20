@@ -15,12 +15,20 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
-	app := application.New(application.Options{
+	// The service pushes headset notifications to the frontend through app.Event. app is assigned
+	// before app.Run, and the service only emits once the frontend has started calling it.
+	var app *application.App
+	service := linzoneapp.NewServiceWithEmitter(func(name string, payload any) {
+		if app != nil {
+			app.Event.Emit(name, payload)
+		}
+	})
+	app = application.New(application.Options{
 		Name:        "LINZONE Hub",
 		Description: "Linux GUI controller for Sony INZONE headsets",
 		Icon:        appIcon,
 		Services: []application.Service{
-			application.NewService(linzoneapp.NewService()),
+			application.NewService(service),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

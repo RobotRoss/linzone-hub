@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Events } from '@wailsio/runtime';
   import { Service } from '../bindings/github.com/patyhank/linzone-hub/internal/app/index.js';
   import { t, getLocale, setLocale, localeOptions } from './lib/i18n/index.svelte.js';
 
@@ -12,7 +13,7 @@
   type DeviceState = {
     device: DeviceSummary;
     battery: { headset?: BatteryCell | null; left?: BatteryCell | null; right?: BatteryCell | null; case?: BatteryCell | null };
-    headphoneVolume?: VolumeState | null; micVolume?: VolumeState | null; ambient?: AmbientState | null; mouse?: MouseState | null; gameChatMix?: SimpleState | null; sidetone?: VolumeState | null;
+    headphoneVolume?: VolumeState | null; micVolume?: VolumeState | null; micAttached?: boolean | null; ambient?: AmbientState | null; mouse?: MouseState | null; gameChatMix?: SimpleState | null; sidetone?: VolumeState | null;
     surround?: SimpleState | null; btStatus?: SimpleState | null; btSoundQuality?: SimpleState | null; btStartupMode?: SimpleState | null; autoPowerOff?: SimpleState | null; ncStartupMode?: SimpleState | null; connectionMode?: SimpleState | null; assignable?: SimpleState | null;
     warnings: string[];
   };
@@ -184,6 +185,25 @@
     mouseButtonPreset = 'Custom';
   }
 
+  // Headset-initiated changes (a button, the volume wheel, Bluetooth connecting...) are pushed by the backend as
+  // events carrying only the settings that changed. They are merged into deviceState and into the controls.
+  type StateEvent = { index: number; event: number; state: Partial<DeviceState> };
+  // A control the user moved in the last moment is left alone: the headset echoes every SET back as a
+  // notification, and applying those would make a slider jump while it is being dragged.
+  const liveTouched: Record<string, number> = {};
+  const LIVE_QUIET_MS = 1500;
+  const liveControlKeys = ['headphoneVolume', 'micVolume', 'sidetone', 'gameChatMix', 'ambient'] as const;
+
+  function applyStateEvent(ev: StateEvent) {
+    if (!deviceState || !ev?.state || ev.index !== selectedIndex) return;
+    const { battery, ...rest } = ev.state;
+    deviceState = { ...deviceState, ...rest, battery: { ...deviceState.battery, ...(battery ?? {}) } };
+    const forControls: Partial<DeviceState> = { ...rest };
+    const now = Date.now();
+    for (const key of liveControlKeys) if (now - (liveTouched[key] ?? 0) < LIVE_QUIET_MS) delete forControls[key];
+    syncControls(forControls as DeviceState);
+  }
+
   function resetLiveControls() {
     for (const key of Object.keys(liveTimers)) window.clearTimeout(liveTimers[key]);
     liveTimers = {};
@@ -244,6 +264,7 @@
   }
 
   function liveApply(key: string, label: Label, action: () => Promise<void>) {
+    liveTouched[key] = Date.now();
     window.clearTimeout(liveTimers[key]);
     liveTimers[key] = window.setTimeout(() => {
       void applyControl(label, action, false);
@@ -317,6 +338,14 @@
 
   $effect(() => {
     document.documentElement.lang = localeOptions.find((option) => option.id === getLocale())?.htmlLang ?? 'en';
+  });
+
+  $effect(() => {
+    const offState = Events.On('inzone:state', (e) => applyStateEvent(e.data as StateEvent));
+    const offLost = Events.On('inzone:device-lost', (e) => {
+      if ((e.data as { index: number }).index === selectedIndex) error = t('msg.deviceLost');
+    });
+    return () => { offState(); offLost(); };
   });
 
   $effect(() => {

@@ -9,6 +9,7 @@ export const en = {
   'msg.noDevices': 'No supported INZONE device detected. Check USB/HID permissions and the udev rule.',
   'msg.loaded': 'Loaded {model}',
   'msg.sent': '{label} sent',
+  'msg.deviceLost': 'The headset connection was lost. Press Rescan once it is connected again.',
   'msg.repairWaiting': 'Waiting for system authorization to repair udev permissions...',
   'msg.repairDone': 'udev permissions repaired. Replug the device or rescan.',
   'msg.profileSaved': 'Saved profile: {name}',

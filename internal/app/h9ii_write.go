@@ -8,7 +8,6 @@ import (
 	"github.com/sstallion/go-hid"
 
 	"github.com/patyhank/linzone-hub/internal/protocol"
-	"github.com/patyhank/linzone-hub/internal/usb"
 )
 
 // INZONE H9 II writers. Every encoding below is what the Windows INZONE Hub sends (from
@@ -24,10 +23,6 @@ type eventSetter interface {
 func h9iiSetLink(l eventSetter, event byte, param []byte) error {
 	_, err := l.Set(protocol.AddrRX, event, param, h9iiAckTimeout)
 	return err
-}
-
-func h9iiSet(dev *hid.Device, event byte, param []byte) error {
-	return h9iiSetLink(protocol.NewLink(dev), event, param)
 }
 
 // h9iiUnavailable is returned for controls that exist in this app but not on the H9 II over
@@ -111,19 +106,21 @@ func h9iiAutoPowerOff(l interface {
 	return h9iiSetLink(l, protocol.EvtAutoPowerOff, param)
 }
 
-// forHeadset runs h9ii for an INZONE H9 II and generic for any other HID headset. A nil h9ii
-// means the control does not exist on the H9 II, which is reported without touching the device.
-func forHeadset(index int, label string, h9ii func(*protocol.Link) error, generic func(*hid.Device) error) error {
-	if base, err := deviceByIndex(index); err == nil && usb.IsH9II(base.ProductID) && h9ii == nil {
-		return h9iiUnavailable(label)
+// forHeadset runs h9ii for an INZONE H9 II, over its persistent session, and generic for any
+// other HID headset. A nil h9ii means the control does not exist on the H9 II, which is reported
+// without touching the device.
+func (s *Service) forHeadset(index int, label string, h9ii func(h9iiLink) error, generic func(*hid.Device) error) error {
+	if s.isH9II(index) {
+		if h9ii == nil {
+			return h9iiUnavailable(label)
+		}
+		hs, err := s.sessionFor(index)
+		if err != nil {
+			return err
+		}
+		return h9ii(hs)
 	}
 	return withHeadset(index, func(dev *hid.Device, info DeviceSummary) error {
-		if usb.IsH9II(info.ProductID) {
-			if h9ii == nil {
-				return h9iiUnavailable(label)
-			}
-			return h9ii(protocol.NewLink(dev))
-		}
 		if info.IsBuds {
 			return errors.New(label + " command for INZONE Buds is not mapped yet")
 		}

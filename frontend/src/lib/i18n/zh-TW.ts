@@ -10,6 +10,7 @@ export const zhTW: Record<MessageKey, string> = {
   'msg.noDevices': '未偵測到支援的 INZONE 裝置。請確認 USB/HID 權限與 udev rule。',
   'msg.loaded': '已讀取 {model}',
   'msg.sent': '{label} 已送出',
+  'msg.deviceLost': '耳機連線已中斷。重新連接後請按「重新掃描」。',
   'msg.repairWaiting': '等待系統授權以修復 udev 權限...',
   'msg.repairDone': 'udev 權限已修復，請重新插拔裝置或重新掃描。',
   'msg.profileSaved': '已儲存 profile：{name}',
